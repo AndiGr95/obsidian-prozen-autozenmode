@@ -271,7 +271,7 @@ class ProzenSettingTab extends PluginSettingTab {
 
 		// AUTO ZEN MODE SETTING 
         new Setting(containerEl)
-            .setName("Auto ten mode")
+            .setName("Auto zen mode")
             .setDesc("Automatically enter zen mode when you begin typing in a document. ")
             .addToggle((toggle) => toggle
                 .setValue(this.plugin.settings.autoZenMode)
