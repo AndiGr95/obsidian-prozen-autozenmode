@@ -1,129 +1,152 @@
 import { App, ItemView, Plugin, PluginSettingTab, Setting, WorkspaceLeaf } from "obsidian";
 
 interface PluginSettings {
-	animationDuration: number,
-	showHeader: boolean,
-	showScroll: boolean,
-	showGraphControls: boolean,
-	forceReadable: boolean,
-	vignetteOpacity: number,
-	vignetteScaleLinear: number,
-	vignetteScaleRadial: number
+    animationDuration: number,
+    showHeader: boolean,
+    showScroll: boolean,
+    showGraphControls: boolean,
+    autoZenMode: boolean, 
+    forceReadable: boolean,
+    vignetteOpacity: number,
+    vignetteScaleLinear: number,
+    vignetteScaleRadial: number
 }
 
 const DEFAULT_SETTINGS: PluginSettings = {
-	animationDuration: 2,
-	showHeader: false,
-	showScroll: false,
-	showGraphControls: false,
-	forceReadable: true, 
-	vignetteOpacity: 0.75,
-	vignetteScaleLinear: 20,
-	vignetteScaleRadial: 75
+    animationDuration: 2,
+    showHeader: false,
+    showScroll: false,
+    showGraphControls: false,
+    autoZenMode: false, 
+    forceReadable: true, 
+    vignetteOpacity: 0.75,
+    vignetteScaleLinear: 20,
+    vignetteScaleRadial: 75
 }
 
 export default class Prozen extends Plugin {
-	settings: PluginSettings;
+    settings: PluginSettings;
+    private isInZenMode: boolean = false; 
 
-	async onload() {
-		await this.loadSettings();
-		this.addCommand({
-			id: "zenmode",
-			name: "Zen mode",
-			callback: this.fullscreenMode.bind(this),
-		});
-		this.addSettingTab(new ProzenSettingTab(this.app, this));
-	}
+    async onload() {
+        await this.loadSettings();
+        this.addCommand({
+            id: "zenmode",
+            name: "Zen mode",
+            callback: this.fullscreenMode.bind(this),
+        });
+        this.addSettingTab(new ProzenSettingTab(this.app, this));
 
-	onunload() {}
+        this.registerEvent(
+            this.app.workspace.on("editor-change", this.handleEditorChange.bind(this))
+        );
+    }
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
+    onunload() {}
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
+    async loadSettings() {
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    }
 
-	fullscreenMode() {
+    async saveSettings() {
+        await this.saveData(this.settings);
+    }
+
+    private handleEditorChange() {
+        if (!this.settings.autoZenMode || this.isInZenMode) return;
+        
+        const activeLeaf = this.app.workspace.activeLeaf;
+        if (!activeLeaf || activeLeaf.view.getViewType() === "empty") return;
+        
+        const editor = (this.app.workspace as any).activeEditor?.editor;
+        if (editor && editor.getValue().trim().length > 0) {
+            this.fullscreenMode();
+            this.isInZenMode = true;
+        }
+    }
+
+    fullscreenMode() {
 		// Use ItemView for multiple view types (previously it was only MarkdownView)
-		const leaf = this.app.workspace.getActiveViewOfType(ItemView).leaf;
-		if (!leaf) return;
+		const leaf = this.app.workspace.getActiveViewOfType(ItemView)?.leaf;
+        if (!leaf) return;
 		// Don't trigger fullscreen mode when current leaf is empty.
-		if(leaf.view.getViewType() === "empty") return;
+		if (leaf.view.getViewType() === "empty") return;
 
-		const root = document.documentElement
-		root.style.setProperty('--fadeIn-duration', this.settings.animationDuration + 's')
-		root.style.setProperty('--vignette-opacity', this.settings.vignetteOpacity)
+        const root = document.documentElement
+        root.style.setProperty('--fadeIn-duration', this.settings.animationDuration + 's')
+        root.style.setProperty('--vignette-opacity', this.settings.vignetteOpacity + '%')
 		root.style.setProperty('--vignette-scale-linear', this.settings.vignetteScaleLinear + '%')
-		root.style.setProperty('--vignette-scale-radial', this.settings.vignetteScaleRadial + '%')
-		
-		const containerEl = leaf.containerEl;
+        root.style.setProperty('--vignette-scale-radial', this.settings.vignetteScaleRadial + '%')
+        
+        const containerEl = (leaf as any).containerEl;
 
-		if (!document.fullscreenElement){
-			containerEl.requestFullscreen();
-			this.addStyles(leaf)
-		} else {
-			document.exitFullscreen();
-			this.removeStyles(leaf)
-		}
-		containerEl.onfullscreenchange = () => {
-			if (!document.fullscreenElement){
-				this.removeStyles(leaf)
-			}
-		}
-	}
+        if (!document.fullscreenElement) {
+            containerEl.requestFullscreen();
+            this.addStyles(leaf);
+            this.isInZenMode = true;
+        } else {
+            document.exitFullscreen();
+            this.removeStyles(leaf);
+            this.isInZenMode = false;
+        }
+        
+        containerEl.onfullscreenchange = () => {
+            if (!document.fullscreenElement) {
+                this.removeStyles(leaf);
+                this.isInZenMode = false;
+            }
+        }
+    }
 
-	addStyles(leaf: WorkspaceLeaf) {
-		const viewEl = leaf.view.contentEl
-		const header = leaf.view.headerEl
-		const isGraph = leaf.view.getViewType() === "graph"
+    addStyles(leaf: WorkspaceLeaf) {
+        const viewEl = (leaf.view as any).contentEl
+        const header = (leaf.view as any).headerEl
+        const isGraph = leaf.view.getViewType() === "graph"
 
-		let graphControls: HTMLElement;
-		if (isGraph) { graphControls = leaf.view.dataEngine.controlsEl}
-		if (!this.settings.showScroll){	viewEl.classList.add("noscroll") }
-		if (isGraph && !this.settings.showGraphControls) { graphControls.classList.add("hide") }
-		isGraph ? viewEl.classList.add("vignette-radial") : viewEl.classList.add("vignette-linear")
-		if (!isGraph && this.settings.forceReadable) { leaf.view.editMode.editorEl.classList.add("is-readable-line-width") }
+        let graphControls: HTMLElement | undefined;
+        if (isGraph) { graphControls = (leaf.view as any).dataEngine?.controlsEl}
+        if (!this.settings.showScroll){ viewEl.classList.add("noscroll") }
+        if (isGraph && !this.settings.showGraphControls && graphControls) { graphControls.classList.add("hide") }
+        isGraph ? viewEl.classList.add("vignette-radial") : viewEl.classList.add("vignette-linear")
+        if (!isGraph && this.settings.forceReadable) { (leaf.view as any).editMode?.editorEl?.classList.add("is-readable-line-width") }
 
-		
-		viewEl.classList.add("animate")
-		this.settings.showHeader ? header.classList.add("animate") : header.classList.add("hide")
+        viewEl.classList.add("animate")
+        this.settings.showHeader ? header.classList.add("animate") : header.classList.add("hide")
+    }
 
-	}
+    removeStyles(leaf: WorkspaceLeaf) {
+        const viewEl = (leaf.view as any).contentEl
+        const header = (leaf.view as any).headerEl
+        const isGraph = leaf.view.getViewType() === "graph"
 
-	removeStyles(leaf: WorkspaceLeaf) {
-		const viewEl = leaf.view.contentEl
-		const header = leaf.view.headerEl
-		const isGraph = leaf.view.getViewType() === "graph"
+        let graphControls: HTMLElement;
+        if (isGraph) {
+            graphControls = (leaf.view as any).dataEngine?.controlsEl
+            if (graphControls) {
+                graphControls.classList.remove("animate", "hide")
+            }
+        } else if (!(this.app.vault as any).getConfig('readableLineLength')) {
+            (leaf.view as any).editMode?.editorEl?.classList.remove("is-readable-line-width")
+        }
 
-		let graphControls: HTMLElement;
-		if (isGraph) {
-			graphControls = leaf.view.dataEngine.controlsEl
-			graphControls.classList.remove("animate", "hide")
-		} else if (!this.app.vault.getConfig('readableLineLength')) {
-			leaf.view.editMode.editorEl.classList.remove("is-readable-line-width")
-		}
-
-		viewEl.classList.remove("vignette-linear", "vignette-radial", "animate", "noscroll")
-		header.classList.remove("animate", "hide")
-	}
+        viewEl.classList.remove("vignette-linear", "vignette-radial", "animate", "noscroll")
+        header.classList.remove("animate", "hide")
+    }
 }
 
 class ProzenSettingTab extends PluginSettingTab {
-	plugin: Prozen;
+    plugin: Prozen;
 
-	constructor(app: App, plugin: Prozen) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
+    constructor(app: App, plugin: Prozen) {
+        super(app, plugin);
+        this.plugin = plugin;
+    }
 
-	display(): void {
-		const {containerEl} = this;
+    display(): void {
+        const {containerEl} = this;
+        containerEl.empty();
 
-		containerEl.empty();
-
-		this.containerEl.createEl("h3", {
+       	this.containerEl.createEl("h3", {
 			text: "Vignette",
 		})
 
@@ -201,59 +224,73 @@ class ProzenSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		this.containerEl.createEl("h3", {
-			text: "Element Toggles",
-		})
+        this.containerEl.createEl("h3", {
+            text: "Element Toggles",
+        })
 
 // SHOW HEADER TOGGLE SETTING
-		new Setting(containerEl)
-			.setName("Show header")
-			.setDesc("Show the tab's header in Zen mode")
-			.addToggle((toggle) =>	toggle
-				.setValue(this.plugin.settings.showHeader)
-				.onChange(async (value) => {
-					this.plugin.settings.showHeader = value;
-					await this.plugin.saveSettings();
-			})
-		);
+        new Setting(containerEl)
+            .setName("Show header")
+            .setDesc("Show the tab's header in Zen mode")
+            .addToggle((toggle) => toggle
+                .setValue(this.plugin.settings.showHeader)
+                .onChange(async (value) => {
+                    this.plugin.settings.showHeader = value;
+                    await this.plugin.saveSettings();
+                })
+            );
+
 // SHOW SCROLLBAR TOGGLE SETTING
-		new Setting(containerEl)
-			.setName("Show scrollbar")
-			.setDesc("Show the scrollbar in Zen mode. If it is hidden, scrolling is still available with mousewheel, arrows, touchpad, etc.")
-			.addToggle((toggle) =>	toggle
-				.setValue(this.plugin.settings.showScroll)
-				.onChange(async (value) => {
-					this.plugin.settings.showScroll = value;
-					await this.plugin.saveSettings();
-			})
-		);
+        new Setting(containerEl)
+            .setName("Show scrollbar")
+            .setDesc("Show the scrollbar in Zen mode. If it is hidden, scrolling is still available with mousewheel, arrows, touchpad, etc.")
+            .addToggle((toggle) => toggle
+                .setValue(this.plugin.settings.showScroll)
+                .onChange(async (value) => {
+                    this.plugin.settings.showScroll = value;
+                    await this.plugin.saveSettings();
+                })
+            );
+
 // SHOW GRAPH CONTROLS SETTING
-		new Setting(containerEl)
-			.setName("Show graph controls")
-			.setDesc("Show the graph view's controls in Zen mode")
-			.addToggle((toggle) =>	toggle
-				.setValue(this.plugin.settings.showGraphControls)
-				.onChange(async (value) => {
-					this.plugin.settings.showGraphControls = value;
-					await this.plugin.saveSettings();
-			})
-		);
+        new Setting(containerEl)
+            .setName("Show graph controls")
+            .setDesc("Show the graph view's controls in Zen mode")
+            .addToggle((toggle) => toggle
+                .setValue(this.plugin.settings.showGraphControls)
+                .onChange(async (value) => {
+                    this.plugin.settings.showGraphControls = value;
+                    await this.plugin.saveSettings();
+                })
+            );
 
-		this.containerEl.createEl("h3", {
-			text: "Misc",
-		})
 
-// FORCE READABLE SETTING
-		new Setting(containerEl)
-			.setName("Force content centering")
-			.setDesc("Center text content in Zen mode, even if in regular view it takes all of the screen's width (ignore 'Editor -> Readable line length' being off in Zen mode)")
-			.addToggle((toggle) =>	toggle
-				.setValue(this.plugin.settings.forceReadable)
-				.onChange(async (value) => {
-					this.plugin.settings.forceReadable = value;
-					await this.plugin.saveSettings();
-			})
-		);
-	}
+        this.containerEl.createEl("h3", {
+            text: "Misc",
+        })
 
+		// AUTO ZEN MODE SETTING 
+        new Setting(containerEl)
+            .setName("Auto ten mode")
+            .setDesc("Automatically enter zen mode when you begin typing in a document. ")
+            .addToggle((toggle) => toggle
+                .setValue(this.plugin.settings.autoZenMode)
+                .onChange(async (value) => {
+                    this.plugin.settings.autoZenMode = value;
+                    await this.plugin.saveSettings();
+                })
+            );
+
+        // FORCE READABLE SETTING
+        new Setting(containerEl)
+            .setName("Force content centering")
+            .setDesc("Center text content in Zen mode, even if in regular view it takes all of the screen's width (ignore 'Editor -> Readable line length' being off in Zen mode)")
+            .addToggle((toggle) => toggle
+                .setValue(this.plugin.settings.forceReadable)
+                .onChange(async (value) => {
+                    this.plugin.settings.forceReadable = value;
+                    await this.plugin.saveSettings();
+                })
+            );
+    }
 }
